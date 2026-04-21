@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset PIN - Studio Sarto Sieni</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#F0F4FA;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#fff;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.1)}
+h2{color:#1677BE;margin-bottom:8px}
+p{color:#64748b;font-size:14px;margin-bottom:24px}
+button{background:#1677BE;color:#fff;border:none;border-radius:10px;padding:14px 28px;font-size:16px;font-weight:700;cursor:pointer;width:100%;margin-bottom:12px}
+button:hover{background:#072EA1}
+.btn-sec{background:#f1f5f9;color:#1677BE}
+.btn-sec:hover{background:#D6E4F5}
+.msg{margin-top:16px;padding:12px;border-radius:8px;font-size:14px;font-weight:600}
+.ok{background:#dcfce7;color:#15803d}
+.err{background:#fee2e2;color:#dc2626}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:48px;margin-bottom:12px">🔑</div>
+  <h2>Reset PIN Utenti</h2>
+  <p>Questa pagina reimposta i PIN di tutti gli utenti ai valori predefiniti.<br>Usare solo una volta.</p>
+  
+  <div id="msg"></div>
+  
+  <button onclick="eseguiReset()">Esegui Reset PIN</button>
+  <button class="btn-sec" onclick="window.location='https://studiossaifi.github.io/studio-sarto-sieni'">Torna all'app</button>
+  
+  <div style="margin-top:20px;background:#f8fafc;border-radius:8px;padding:12px;text-align:left;font-size:13px">
+    <strong>PIN predefiniti dopo il reset:</strong><br>
+    👤 Amministratore → <strong>00000</strong><br>
+    👥 Mario Rossi → <strong>12345</strong><br>
+    👥 Anna Bianchi → <strong>12345</strong>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey: "AIzaSyDSDSinDCNEHwHvkQFLf0k1H_CTI5ogUGc",
+  authDomain: "studio-sarto-sieni-scadenzario.firebaseapp.com",
+  databaseURL: "https://studio-sarto-sieni-scadenzario-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "studio-sarto-sieni-scadenzario"
+});
+
+var db = firebase.database();
+
+function eseguiReset(){
+  var btn = document.querySelector('button');
+  btn.textContent = 'In corso...';
+  btn.disabled = true;
+  
+  var utentiStudio = {
+    "admin": {id:"admin", pw:"00000", role:"admin", nome:"Amministratore", email:""}
+  };
+  
+  var utentiPortale = {
+    "rossi-mario": {id:"rossi.mario", pw:"12345", role:"client", name:"Mario Rossi", cid:"C001", email:"mario.rossi@esempio.it"},
+    "bianchi-anna": {id:"bianchi.anna", pw:"12345", role:"client", name:"Anna Bianchi", cid:"C002", email:"anna.bianchi@esempio.it"}
+  };
+  
+  // Leggi prima gli utenti esistenti e aggiorna solo il campo pw
+  db.ref("utentiStudio").once("value").then(function(snap){
+    var esistenti = snap.val() || {};
+    // Se esistono utenti, aggiorna solo pw
+    if(Object.keys(esistenti).length > 0){
+      var updates = {};
+      Object.keys(esistenti).forEach(function(k){
+        updates["utentiStudio/" + k + "/pw"] = "00000";
+      });
+      return db.ref().update(updates);
+    } else {
+      return db.ref("utentiStudio").set(utentiStudio);
+    }
+  }).then(function(){
+    // Aggiorna clienti portale
+    return db.ref("utenti").once("value");
+  }).then(function(snap){
+    var esistenti = snap.val() || {};
+    if(Object.keys(esistenti).length > 0){
+      var updates = {};
+      Object.keys(esistenti).forEach(function(k){
+        updates["utenti/" + k + "/pw"] = "12345";
+      });
+      return db.ref().update(updates);
+    } else {
+      return db.ref("utenti").set(utentiPortale);
+    }
+  }).then(function(){
+    document.getElementById("msg").innerHTML = 
+      '<div class="msg ok">✅ Reset completato! Tutti i PIN aggiornati.<br>Torna all'app e accedi con i nuovi PIN.</div>';
+    document.querySelector("button").textContent = "Reset eseguito";
+  }).catch(function(e){
+    document.getElementById("msg").innerHTML = 
+      '<div class="msg err">❌ Errore: ' + e.message + '</div>';
+    document.querySelector("button").textContent = "Esegui Reset PIN";
+    document.querySelector("button").disabled = false;
+  });
+}
+</script>
+</body>
+</html>
