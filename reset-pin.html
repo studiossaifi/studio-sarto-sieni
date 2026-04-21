@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset PIN - Studio Sarto Sieni</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+body{background:#F0F4FA;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;border-radius:16px;padding:28px;max-width:520px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.1)}
+h2{color:#072EA1;margin-bottom:6px;font-size:18px}
+p{color:#64748b;font-size:13px;margin-bottom:20px}
+.btn{background:#1677BE;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-bottom:10px}
+.btn:hover{background:#072EA1}
+.btn-r{background:#dc2626}
+.btn-r:hover{background:#b91c1c}
+.btn-sec{background:#F0F4FA;color:#072EA1;border:1.5px solid #D6E4F5;font-weight:600}
+.btn-sec:hover{background:#D6E4F5}
+.msg{margin:14px 0;padding:12px;border-radius:8px;font-size:13px;font-weight:600}
+.ok{background:#dcfce7;color:#15803d}
+.err{background:#fee2e2;color:#dc2626}
+.user-list{margin:16px 0}
+.user-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid #D6E4F5;border-radius:8px;margin-bottom:8px;background:#fff}
+.user-name{font-weight:600;color:#072EA1;font-size:14px}
+.user-sub{font-size:11px;color:#64748b}
+.btn-del{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.btn-del:hover{background:#fee2e2}
+.section-title{font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:40px;margin-bottom:10px">🔑</div>
+  <h2>Gestione PIN e Utenti</h2>
+  <p>Reimposta i PIN e gestisci gli utenti direttamente su Firebase.</p>
+  
+  <div id="msg"></div>
+  
+  <button class="btn" onclick="caricaUtenti()">📋 Carica utenti da Firebase</button>
+  <div id="lista-utenti"></div>
+  
+  <hr style="margin:16px 0;border-color:#D6E4F5">
+  
+  <button class="btn" onclick="resetAllPin()">🔄 Reimposta tutti i PIN</button>
+  <div style="background:#F0F4FA;border-radius:8px;padding:12px;font-size:12px;margin-top:10px;color:#475569">
+    <strong>PIN dopo il reset:</strong><br>
+    👤 Tutti gli admin e operatori → <strong>00000</strong><br>
+    👥 Tutti i clienti → <strong>12345</strong>
+  </div>
+  
+  <hr style="margin:16px 0;border-color:#D6E4F5">
+  <button class="btn btn-sec" onclick="window.location='https://studiossaifi.github.io/studio-sarto-sieni'">
+    ← Torna all'app
+  </button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyDSDSinDCNEHwHvkQFLf0k1H_CTI5ogUGc",
+  authDomain:"studio-sarto-sieni-scadenzario.firebaseapp.com",
+  databaseURL:"https://studio-sarto-sieni-scadenzario-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:"studio-sarto-sieni-scadenzario"
+});
+var db=firebase.database();
+
+function msg(txt,ok){
+  document.getElementById("msg").innerHTML='<div class="msg '+(ok?'ok':'err')+'">'+txt+'</div>';
+}
+
+function caricaUtenti(){
+  db.ref("/").once("value").then(function(snap){
+    var data=snap.val()||{};
+    var studio=data.utentiStudio?Object.values(data.utentiStudio):[];
+    var portale=data.utenti?Object.values(data.utenti):[];
+    var h='';
+    
+    if(studio.length){
+      h+='<div class="section-title">Utenti Studio ('+studio.length+')</div>';
+      studio.forEach(function(u){
+        h+='<div class="user-item">';
+        h+='<div><div class="user-name">'+u.nome+'</div>';
+        h+='<div class="user-sub">'+u.id+' &mdash; '+u.role+'</div></div>';
+        h+='<button class="btn-del" onclick="eliminaStudio(''+u.id+'')">Elimina</button>';
+        h+='</div>';
+      });
+    }
+    
+    if(portale.length){
+      h+='<div class="section-title">Clienti Portale ('+portale.length+')</div>';
+      portale.forEach(function(u){
+        h+='<div class="user-item">';
+        h+='<div><div class="user-name">'+(u.name||u.id)+'</div>';
+        h+='<div class="user-sub">'+u.id+'</div></div>';
+        h+='<button class="btn-del" onclick="eliminaPortale(''+u.id+'')">Elimina</button>';
+        h+='</div>';
+      });
+    }
+    
+    if(!studio.length&&!portale.length) h='<div class="msg ok">Nessun utente trovato.</div>';
+    document.getElementById("lista-utenti").innerHTML=h;
+  }).catch(function(e){msg("Errore: "+e.message);});
+}
+
+function eliminaStudio(id){
+  if(!confirm("Eliminare utente studio: "+id+"?"))return;
+  var key=id.replace(/[.#$\[\]]/g,"-");
+  db.ref("utentiStudio/"+key).remove().then(function(){
+    msg("✅ Eliminato: "+id,true);
+    caricaUtenti();
+  }).catch(function(e){msg("Errore: "+e.message);});
+}
+
+function eliminaPortale(id){
+  if(!confirm("Eliminare cliente portale: "+id+"?"))return;
+  var key=id.replace(/[.#$\[\]]/g,"-");
+  db.ref("utenti/"+key).remove().then(function(){
+    msg("✅ Eliminato: "+id,true);
+    caricaUtenti();
+  }).catch(function(e){msg("Errore: "+e.message);});
+}
+
+function resetAllPin(){
+  if(!confirm("Reimpostare TUTTI i PIN?\nAdmin/Operatori -> 00000\nClienti -> 12345"))return;
+  db.ref("/").once("value").then(function(snap){
+    var data=snap.val()||{};
+    var updates={};
+    if(data.utentiStudio){
+      Object.keys(data.utentiStudio).forEach(function(k){updates["utentiStudio/"+k+"/pw"]="00000";});
+    }
+    if(data.utenti){
+      Object.keys(data.utenti).forEach(function(k){updates["utenti/"+k+"/pw"]="12345";});
+    }
+    return db.ref().update(updates);
+  }).then(function(){
+    msg("✅ Tutti i PIN reimpostati con successo!",true);
+    caricaUtenti();
+  }).catch(function(e){msg("Errore: "+e.message);});
+}
+</script>
+</body>
+</html>
