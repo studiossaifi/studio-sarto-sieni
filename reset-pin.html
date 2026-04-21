@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset PIN - Studio Sarto Sieni</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,sans-serif}
+body{background:#F0F4FA;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.card{background:#fff;border-radius:16px;padding:28px;max-width:540px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,.1)}
+h2{color:#072EA1;margin-bottom:6px;font-size:18px}
+p{color:#64748b;font-size:13px;margin-bottom:20px}
+.btn{background:#1677BE;color:#fff;border:none;border-radius:8px;padding:12px 20px;font-size:14px;font-weight:700;cursor:pointer;width:100%;margin-bottom:10px;display:block}
+.btn:hover{background:#072EA1}
+.btn-r{background:#dc2626}
+.btn-r:hover{background:#b91c1c}
+.btn-sec{background:#F0F4FA;color:#072EA1;border:1.5px solid #D6E4F5;font-weight:600}
+.msg{margin:10px 0;padding:12px;border-radius:8px;font-size:13px;font-weight:600}
+.ok{background:#dcfce7;color:#15803d}
+.err{background:#fee2e2;color:#dc2626}
+.info{background:#D6E4F5;color:#072EA1}
+.user-item{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1.5px solid #D6E4F5;border-radius:8px;margin-bottom:8px}
+.user-name{font-weight:600;color:#072EA1;font-size:14px}
+.user-sub{font-size:11px;color:#64748b;margin-top:2px}
+.btn-del{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.section-title{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px;padding-bottom:4px;border-bottom:1px solid #D6E4F5}
+hr{margin:16px 0;border:none;border-top:1px solid #D6E4F5}
+</style>
+</head>
+<body>
+<div class="card">
+  <div style="font-size:36px;margin-bottom:10px">🔑</div>
+  <h2>Gestione PIN e Utenti Firebase</h2>
+  <p>Strumento di amministrazione diretto su Firebase.<br>Usare con attenzione.</p>
+
+  <div id="msg"></div>
+  <div id="stato" class="msg info">Connessione a Firebase in corso...</div>
+
+  <div id="lista-utenti" style="margin:16px 0"></div>
+
+  <hr>
+  <button class="btn" onclick="resetAllPin()">🔄 Reimposta tutti i PIN<br><small style="font-weight:400">Admin → 00000 &nbsp;|&nbsp; Clienti → 12345</small></button>
+  <hr>
+  <a href="https://studiossaifi.github.io/studio-sarto-sieni" style="display:block;text-align:center;color:#64748b;font-size:13px;text-decoration:none;padding:8px">← Torna all'app</a>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, get, set, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const cfg = {
+  apiKey: "AIzaSyDSDSinDCNEHwHvkQFLf0k1H_CTI5ogUGc",
+  authDomain: "studio-sarto-sieni-scadenzario.firebaseapp.com",
+  databaseURL: "https://studio-sarto-sieni-scadenzario-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "studio-sarto-sieni-scadenzario"
+};
+
+const app = initializeApp(cfg);
+const db  = getDatabase(app);
+
+function showMsg(txt, tipo){
+  document.getElementById("msg").innerHTML = '<div class="msg '+tipo+'">'+txt+'</div>';
+}
+function showStato(txt){ document.getElementById("stato").textContent = txt; }
+
+function fbKey(id){ return id.replace(/[.#$\[\]]/g,"-"); }
+
+async function caricaUtenti(){
+  showStato("Caricamento utenti...");
+  try{
+    const snap = await get(ref(db, "/"));
+    const data = snap.val() || {};
+    const studio  = data.utentiStudio ? Object.values(data.utentiStudio) : [];
+    const portale = data.utenti       ? Object.values(data.utenti)       : [];
+    showStato("Connesso ✅ — " + studio.length + " utenti studio, " + portale.length + " clienti portale");
+    renderLista(studio, portale);
+  }catch(e){
+    showStato("Errore: "+e.message);
+    showMsg("❌ Errore Firebase: "+e.message, "err");
+  }
+}
+
+function renderLista(studio, portale){
+  let h = "";
+  if(studio.length){
+    h += '<div class="section-title">Utenti Studio ('+studio.length+')</div>';
+    studio.forEach(u=>{
+      h += '<div class="user-item">';
+      h += '<div><div class="user-name">'+(u.nome||u.id)+'</div>';
+      h += '<div class="user-sub">'+u.id+' &mdash; <strong>'+u.role+'</strong> &mdash; PIN: '+u.pw+'</div></div>';
+      h += '<button class="btn-del" onclick="window.delStudio(''+u.id+'')">Elimina</button>';
+      h += '</div>';
+    });
+  }
+  if(portale.length){
+    h += '<div class="section-title">Clienti Portale ('+portale.length+')</div>';
+    portale.forEach(u=>{
+      h += '<div class="user-item">';
+      h += '<div><div class="user-name">'+(u.name||u.id)+'</div>';
+      h += '<div class="user-sub">'+u.id+' &mdash; PIN: '+u.pw+'</div></div>';
+      h += '<button class="btn-del" onclick="window.delPortale(''+u.id+'')">Elimina</button>';
+      h += '</div>';
+    });
+  }
+  if(!h) h = '<div class="msg info">Nessun utente trovato in Firebase.</div>';
+  document.getElementById("lista-utenti").innerHTML = h;
+}
+
+window.delStudio = async function(id){
+  if(!confirm("Eliminare utente studio: "+id+"?")) return;
+  try{
+    await remove(ref(db, "utentiStudio/"+fbKey(id)));
+    showMsg("✅ Eliminato: "+id, "ok");
+    caricaUtenti();
+  }catch(e){ showMsg("❌ "+e.message,"err"); }
+};
+
+window.delPortale = async function(id){
+  if(!confirm("Eliminare cliente portale: "+id+"?")) return;
+  try{
+    await remove(ref(db, "utenti/"+fbKey(id)));
+    showMsg("✅ Eliminato: "+id, "ok");
+    caricaUtenti();
+  }catch(e){ showMsg("❌ "+e.message,"err"); }
+};
+
+window.resetAllPin = async function(){
+  if(!confirm("Reimpostare TUTTI i PIN?\nAdmin/Operatori → 00000\nClienti → 12345")) return;
+  try{
+    const snap = await get(ref(db, "/"));
+    const data = snap.val() || {};
+    const updates = {};
+    if(data.utentiStudio){
+      Object.keys(data.utentiStudio).forEach(k=>{ updates["utentiStudio/"+k+"/pw"] = "00000"; });
+    }
+    if(data.utenti){
+      Object.keys(data.utenti).forEach(k=>{ updates["utenti/"+k+"/pw"] = "12345"; });
+    }
+    await update(ref(db), updates);
+    showMsg("✅ Tutti i PIN reimpostati!", "ok");
+    caricaUtenti();
+  }catch(e){ showMsg("❌ "+e.message,"err"); }
+};
+
+// Carica automaticamente all'avvio
+caricaUtenti();
+</script>
+</body>
+</html>
