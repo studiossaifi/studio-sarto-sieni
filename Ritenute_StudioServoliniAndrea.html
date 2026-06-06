@@ -857,6 +857,7 @@ select.bi option{background:#1a3360;}
           style="background:transparent;border:none;color:var(--oro-l);font-size:15px;font-weight:700;font-family:'Playfair Display',serif;cursor:pointer;outline:none;padding:0 2px">
         </select>
       </div>
+      <div id="tb-sync" style="font-size:11px;font-weight:600;cursor:default;padding:4px 10px;background:rgba(0,0,0,0.2);border-radius:6px;color:var(--grigio)" title="Stato sincronizzazione">&#8635; Cloud</div>
       <div class="tb-pill" id="tb-ora"></div>
     </div>
   </div>
@@ -2112,11 +2113,105 @@ select.bi option{background:#1a3360;}
 ══════════════════════════════════════════════════════════ -->
 <script>
 'use strict';
+// ─── FIREBASE REALTIME DATABASE ───────────────────────────
+const FB_URL = 'https://studio-servolini-ritenute-default-rtdb.europe-west1.firebasedatabase.app';
+const FB_PATH = '/db.json';
+let _fbSaving = false;      // evita loop di re-render su proprio save
+let _fbEs = null;           // EventSource per real-time
+let _fbConnected = false;   // stato connessione
+
+function fbUrl(){ return FB_URL + FB_PATH; }
+
+// Salva su Firebase (asincrono, non-bloccante)
+async function saveToFirebase(){
+  if(_fbSaving) return;
+  _fbSaving = true;
+  try{
+    const r = await fetch(fbUrl(),{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(DB)
+    });
+    if(r.ok){ _fbConnected=true; aggiornaStatoSync('ok'); }
+    else { aggiornaStatoSync('warn'); }
+  }catch(e){ aggiornaStatoSync('offline'); }
+  finally{ setTimeout(()=>{ _fbSaving=false; },300); }
+}
+
+// Carica da Firebase (asincrono)
+async function loadFromFirebase(){
+  try{
+    aggiornaStatoSync('sync');
+    const r = await fetch(fbUrl());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    if(data && data.utenti){
+      DB = data;
+      _assicuraStruttura();
+      try{localStorage.setItem(KEY, JSON.stringify(DB));}catch(e){}
+      _fbConnected = true;
+      aggiornaStatoSync('ok');
+      return true;
+    }
+  }catch(e){ aggiornaStatoSync('offline'); }
+  return false;
+}
+
+// Real-time listener (EventSource / SSE Firebase)
+function avviaRealtime(){
+  if(_fbEs){ _fbEs.close(); _fbEs=null; }
+  try{
+    _fbEs = new EventSource(fbUrl());
+    _fbEs.addEventListener('put', e=>{
+      if(_fbSaving) return; // ignora evento generato dal proprio save
+      try{
+        const payload = JSON.parse(e.data);
+        const newDB = payload.data;
+        if(newDB && newDB.utenti){
+          DB = newDB;
+          _assicuraStruttura();
+          try{localStorage.setItem(KEY, JSON.stringify(DB));}catch(e){}
+          _fbConnected = true;
+          aggiornaStatoSync('ok');
+          // Aggiorna UI se l'utente è loggato
+          if(SESSION){
+            popSelects();
+            initAnnoSelector();
+            renderSection(STATE.view);
+            toast('&#128260; Dati aggiornati in tempo reale.','i');
+          }
+        }
+      }catch(ex){}
+    });
+    _fbEs.onerror = ()=>{ _fbConnected=false; aggiornaStatoSync('offline'); };
+  }catch(e){ aggiornaStatoSync('offline'); }
+}
+
+function fermaRealtime(){
+  if(_fbEs){ _fbEs.close(); _fbEs=null; }
+}
+
+// Indicatore stato sync nella topbar
+function aggiornaStatoSync(stato){
+  const el = document.getElementById('tb-sync');
+  if(!el) return;
+  const cfg = {
+    ok:     {txt:'&#9729; Cloud',     col:'var(--verde-l)',   title:'Dati sincronizzati con il cloud'},
+    sync:   {txt:'&#8635; Sync...',   col:'var(--oro-l)',     title:'Sincronizzazione in corso...'},
+    warn:   {txt:'&#9888; Avviso',    col:'var(--oro-l)',     title:'Problema di sincronizzazione'},
+    offline:{txt:'&#9889; Offline',   col:'#ff9090',          title:'Connessione assente — dati locali'}
+  };
+  const c = cfg[stato]||cfg.ok;
+  el.innerHTML = c.txt;
+  el.style.color = c.col;
+  el.title = c.title;
+}
+
 // ─── DB ───────────────────────────────────────────────────
 const KEY = 'ssa_rit4_clean';
 let DB = {
   utenti:[
-    {id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin2024',ruolo:'admin'}
+    {id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin26',ruolo:'admin'}
   ],
   clienti:[],
   percipienti:[],
@@ -2124,6 +2219,7 @@ let DB = {
   f24:[],
   scadenze:[],
   credenzialiClienti:[],
+  comunicazioni:[],
   config:{studio:'Studio dott. Servolini Andrea',cf:'',aliquota:20,ct:'1040',anno:2026}
 };
 let SESSION = null;
@@ -2185,33 +2281,31 @@ function applicaRestrizionUI(ruolo){
 }
 let CLIENT_SESSION = null;  // sessione cliente portale
 
-function loadDB(){
-  try{
-    const r=localStorage.getItem(KEY);
-    if(r){
-      const d=JSON.parse(r);
-      if(d&&d.utenti){
-        DB=d;
-        // Assicura strutture presenti
-        if(!DB.scadenze) DB.scadenze=[];
-        if(!DB.credenzialiClienti) DB.credenzialiClienti=[];
-        // Mantieni solo utente admin se non ci sono altri utenti configurati
-        if(!DB.utenti||DB.utenti.length===0){
-          DB.utenti=[{id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin2024',ruolo:'admin'}];
-        }
-        // Anno 2026 di default se obsoleto
-        if(!DB.config.anno||DB.config.anno<2026) DB.config.anno=2026;
-      }
-    }
-  }catch(e){}
+function _assicuraStruttura(){
   if(!DB.scadenze) DB.scadenze=[];
   if(!DB.credenzialiClienti) DB.credenzialiClienti=[];
   if(!DB.comunicazioni) DB.comunicazioni=[];
+  if(!DB.utenti||DB.utenti.length===0){
+    DB.utenti=[{id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin26',ruolo:'admin'}];
+  }
+  if(!DB.config.anno||DB.config.anno<2026) DB.config.anno=2026;
   normalizzaAnniDB();
 }
+
+function loadDB(){
+  // 1. Carica da localStorage (risposta immediata)
+  try{
+    const r=localStorage.getItem(KEY);
+    if(r){ const d=JSON.parse(r); if(d&&d.utenti) DB=d; }
+  }catch(e){}
+  _assicuraStruttura();
+}
+
 function saveDB(){
+  // Salva localmente (sincrono) + Firebase (asincrono)
   try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}
   try{localStorage.setItem(KEY+'_bk',JSON.stringify({ts:new Date().toISOString(),data:DB}));}catch(e){}
+  saveToFirebase(); // non-bloccante
 }
 function uid(){return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 
@@ -2242,6 +2336,14 @@ function doLogin(){
     applicaRestrizionUI(staff.ruolo);
     if(!DB.config.anno||DB.config.anno<2020) DB.config.anno=new Date().getFullYear();
     initAnnoSelector();
+
+    // Carica dati aggiornati da Firebase, poi avvia real-time
+    aggiornaStatoSync('sync');
+    loadFromFirebase().then(loaded=>{
+      if(loaded){ popSelects(); initAnnoSelector(); renderSection(STATE.view); }
+      avviaRealtime();
+    });
+
     goTo('dashboard');
     setInterval(()=>{
       const n=new Date();
@@ -2267,6 +2369,7 @@ function doLogin(){
 }
 function doLogout(){
   SESSION=null;
+  fermaRealtime();
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('app').style.display='none';
   document.getElementById('lg-u').value='';document.getElementById('lg-p').value='';
@@ -4268,7 +4371,7 @@ function resetAll(){
   if(!confirm('Conferma definitiva? Rimarranno solo le credenziali di accesso admin.'))return;
   // Conserva solo utente admin
   const adminUser = DB.utenti.find(u=>u.ruolo==='admin') ||
-    {id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin2024',ruolo:'admin'};
+    {id:'u1',nome:'Andrea Servolini',username:'admin',password:'admin26',ruolo:'admin'};
   DB.utenti=[adminUser];
   DB.clienti=[];
   DB.percipienti=[];
@@ -5904,6 +6007,21 @@ function renderAdmCredenziali(){
 }
 
 loadDB();
+// ── RESET CREDENZIALI — eseguito ad ogni caricamento di questa versione ──
+(function(){
+  // Mantieni solo admin con nuova password, rimuovi tutti gli altri utenti
+  DB.utenti = [{
+    id:'u1',
+    nome:'Andrea Servolini',
+    username:'admin',
+    password:'admin26',
+    ruolo:'admin'
+  }];
+  // Azzera tutte le credenziali dei clienti
+  DB.credenzialiClienti = [];
+  // Salva in locale
+  try{localStorage.setItem(KEY, JSON.stringify(DB));}catch(e){}
+})();
 // ── Inizializzazione: anno 2026, pulizia legacy ──
 (function(){
   const ANNO_CORRENTE = 2026;
